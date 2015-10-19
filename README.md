@@ -13,3 +13,5 @@ For now, I'm prototyping this with a TUI interface, but I plan to also experimen
 I plan to try a few different models for handling command execution on remote hosts.  Sending text to a shell's stdin is certainly feasible, and will be my first pass, but there are some difficulties there and a few things tricky to get quite right.  I'd like to use this as an excuse to try cloud-haskell, and experiment with a mode that copies Weaver (or a subset) into the remote host and runs it there.  This is clearly a terrible idea for a variety of reasons, but would be fun to try.
 
 I'd like to try experimenting with transparently providing additional capabilities to other native programs run through Weaver.  For example, I could expose a remote system's filesystem locally over a FUSE mount in a separate mount namespace, which might be kind of sane depending on what I export, or I could do the horrible insane option and hook into the program through ptrace(2).
+
+To build weaver, make sure you have stack installed, and run 'stack build'.
