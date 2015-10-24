@@ -17,7 +17,6 @@ import Data.Maybe (fromJust)
 import Data.Word (Word8)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.UTF8 as BS8
-import Debug.Trace
 import Foreign.Marshal.Array
   ( mallocArray
   , peekArray
@@ -91,7 +90,7 @@ histScroll = M.viewportScroll historyName
 
 weaverEvent :: Weaver -> WeaverEvent -> T.EventM (T.Next Weaver)
 weaverEvent w (VtyEvent v) = appEvent w v
-weaverEvent w ev@(CommandOutput i t) = M.continue $ trace (show ev) $ w & (history . ix i . output) %~ (++ t)
+weaverEvent w (CommandOutput i t) = M.continue $ w & (history . ix i . output) %~ (++ t)
 weaverEvent w (CommandFinished i rv) = M.continue $ w & (history . ix i . returnValue) .~ Just rv
 
 appEvent :: Weaver -> Vty.Event -> T.EventM (T.Next Weaver)
