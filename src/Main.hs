@@ -9,12 +9,14 @@ import Control.Lens
 import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Data.Default
+import Data.List (intersperse)
 import GHC.IO.Exception (ExitCode(..))
 import qualified Graphics.Vty as Vty
 import qualified Data.Vector as Vector
 
 import qualified Brick.Types as T
 import qualified Brick.Main as M
+import qualified Brick.Widgets.Border as B
 import qualified Brick.Widgets.Edit as E
 import qualified Brick.Widgets.List as L
 import Brick.Types
@@ -38,7 +40,8 @@ data WeaverEvent =
   | CommandFinished Int ExitCode
 
 data History =
-  History { _returnValue :: Maybe ExitCode
+  History { _cmd :: String
+          , _returnValue :: Maybe ExitCode
           , _output :: String
           }
 
@@ -63,11 +66,11 @@ mainUI :: Weaver -> [Widget]
 mainUI w = [ui]
   where
     ui = _history <=> i
-    _history = viewport historyName T.Vertical $ vBox $ map renderHistoryElement (w ^. history)
+    _history = viewport historyName T.Vertical $ vBox $ concat $ map renderHistoryElement (w ^. history)
     i = E.renderEditor $ w ^. input
 
-renderHistoryElement :: History -> Widget
-renderHistoryElement h = str $ h ^. output
+renderHistoryElement :: History -> [Widget]
+renderHistoryElement h = [(str $ h ^. cmd), (str $ h ^. output)]
 
 histScroll :: M.ViewportScroll
 histScroll = M.viewportScroll historyName
@@ -96,16 +99,9 @@ forkRunCommand w = do
     writeChan (w ^. eventChannel) (CommandFinished i rv)
   return emptied
   where
-    appended = w & history %~ (++ [ History Nothing t ])
+    appended = w & history %~ (++ [ History t Nothing "" ])
     emptied = appended & input .~ emptyInput
     i = length ( w ^. history)
-    t = unlines $ E.getEditContents $ w ^. input
-
-runCommand :: Weaver -> Weaver
-runCommand w = emptied
-  where
-    appended = w & history %~ (++ [ History Nothing t ])
-    emptied = appended & input .~ emptyInput
     t = unlines $ E.getEditContents $ w ^. input
 
 emptyInput :: E.Editor
