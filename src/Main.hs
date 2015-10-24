@@ -2,23 +2,35 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Main where
 
-import Control.Applicative ()
 import Control.Concurrent
-import Control.Concurrent.Chan
+  ( writeChan
+  , forkIO
+  , newChan
+  , Chan
+  )
+import Control.Exception (finally)
 import Control.Lens
-import Control.Monad (void)
+import Control.Monad (forever)
 import Control.Monad.IO.Class (liftIO)
-import Data.Default
-import Data.List (intersperse)
+import qualified Data.Default (def)
+import Data.Maybe (fromJust)
+import Data.Word (Word8)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.UTF8 as BS8
+import Debug.Trace
+import Foreign.Marshal.Array
+  ( mallocArray
+  , peekArray
+  )
+import Foreign.Marshal.Alloc (free)
+import Foreign.Ptr (Ptr)
 import GHC.IO.Exception (ExitCode(..))
+import GHC.IO.Handle.Types (Handle(..))
 import qualified Graphics.Vty as Vty
-import qualified Data.Vector as Vector
 
 import qualified Brick.Types as T
 import qualified Brick.Main as M
-import qualified Brick.Widgets.Border as B
 import qualified Brick.Widgets.Edit as E
-import qualified Brick.Widgets.List as L
 import Brick.Types
   ( Widget
   )
@@ -31,13 +43,15 @@ import Brick.Widgets.Core
 
 import qualified System.Process as P
 import System.IO
-  ( hGetContents
+  ( hSetBinaryMode
+  , hGetBufSome
   )
 
 data WeaverEvent =
   VtyEvent Vty.Event
   | CommandOutput Int String
   | CommandFinished Int ExitCode
+  deriving Show
 
 data History =
   History { _cmd :: String
@@ -77,7 +91,7 @@ histScroll = M.viewportScroll historyName
 
 weaverEvent :: Weaver -> WeaverEvent -> T.EventM (T.Next Weaver)
 weaverEvent w (VtyEvent v) = appEvent w v
-weaverEvent w (CommandOutput i t) = M.continue $ w & (history . ix i . output) %~ (++ t)
+weaverEvent w ev@(CommandOutput i t) = M.continue $ trace (show ev) $ w & (history . ix i . output) %~ (++ t)
 weaverEvent w (CommandFinished i rv) = M.continue $ w & (history . ix i . returnValue) .~ Just rv
 
 appEvent :: Weaver -> Vty.Event -> T.EventM (T.Next Weaver)
@@ -87,15 +101,32 @@ appEvent w (Vty.EvKey Vty.KEnter []) = forkRunCommand w >>= M.continue
 appEvent w (Vty.EvKey Vty.KEsc []) = M.halt w
 appEvent w ev = T.handleEventLensed w input ev >>= M.continue
 
-launchShellProcess cmd =  P.createProcess (P.shell cmd){P.std_out = P.CreatePipe, P.std_in = P.CreatePipe}
+launchShellProcess :: String -> IO (Maybe Handle, Maybe Handle, Maybe Handle, P.ProcessHandle)
+launchShellProcess shellCommandText =  P.createProcess (P.shell shellCommandText){P.std_out = P.CreatePipe, P.std_in = P.CreatePipe}
+
+readBufferSize :: Int
+readBufferSize = 1024
+
+streamOutput :: Handle -> Chan WeaverEvent -> Int -> IO ()
+streamOutput h c i = do
+  hSetBinaryMode h True
+  buffer <- mallocArray readBufferSize :: IO (Ptr Word8)
+  finally
+    (forever $! do
+      count <- hGetBufSome h buffer readBufferSize
+      bytes <- peekArray count buffer
+      let result = BS8.toString $ BS.pack bytes
+      if count > 0
+         then writeChan c (CommandOutput i result)
+         else error "EOF")
+    (free buffer)
 
 forkRunCommand :: Weaver -> T.EventM Weaver
 forkRunCommand w = do
-  pid <- liftIO $ forkIO $ do
+  _ <- liftIO $ forkIO $ do
     (_, so, _, h) <- launchShellProcess t
+    _ <- forkIO $ streamOutput (fromJust so) (w ^. eventChannel) i
     rv <- P.waitForProcess h
-    out <- maybe (return "") hGetContents so
-    writeChan (w ^. eventChannel) (CommandOutput i out)
     writeChan (w ^. eventChannel) (CommandFinished i rv)
   return emptied
   where
@@ -120,7 +151,7 @@ app =
     M.App { M.appDraw = mainUI
           , M.appStartEvent = return
           , M.appHandleEvent = weaverEvent
-          , M.appAttrMap = const def
+          , M.appAttrMap = const Data.Default.def
           , M.appLiftVtyEvent = VtyEvent
           , M.appChooseCursor = appCursor
           }
@@ -128,8 +159,8 @@ app =
 main :: IO ()
 main = do
   is <- initialState
-  finalState <- M.customMain (Vty.mkVty Data.Default.def) (is ^. eventChannel) app is
-  print "done"
+  _ <- M.customMain (Vty.mkVty Data.Default.def) (is ^. eventChannel) app is
+  return ()
 -- main = do
 --   finished <- newChan
 --   let cmd = (P.shell "cat /etc/hosts"){P.std_out = P.CreatePipe, P.std_in = P.CreatePipe}
