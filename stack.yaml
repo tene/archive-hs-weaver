@@ -10,7 +10,6 @@ packages:
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps:
 - brick-0.2.1
-- libssh2-0.2.0.3
 - text-zipper-0.3.1
 - vty-5.4.0
 
