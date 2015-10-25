@@ -86,7 +86,15 @@ mainUI w = [ui]
     i = E.renderEditor $ w ^. input
 
 renderHistoryElement :: History -> [Widget]
-renderHistoryElement h = [withAttr (attrName "command") (padRight T.Max $ str $ h ^. cmd), withAttr (attrName "output") (str $ h ^. output)]
+renderHistoryElement h =
+  [ withAttr (attrName "command") (padRight T.Max $ str $ sigil ++ " " ++ h ^. cmd)
+  , withAttr (attrName "output") (str $ h ^. output)
+  ]
+    where
+      sigil = case (h ^. returnValue) of
+                Just ExitSuccess     -> "✔"
+                Just (ExitFailure _) -> "✘"
+                Nothing              -> "…"
 
 histScroll :: M.ViewportScroll
 histScroll = M.viewportScroll historyName
