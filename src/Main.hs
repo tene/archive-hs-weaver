@@ -27,16 +27,24 @@ import GHC.IO.Exception (ExitCode(..))
 import GHC.IO.Handle.Types (Handle(..))
 import qualified Graphics.Vty as Vty
 
+import Brick.AttrMap
 import qualified Brick.Types as T
 import qualified Brick.Main as M
 import qualified Brick.Widgets.Edit as E
 import Brick.Types
   ( Widget
   )
+import Brick.Util
+  ( on
+  , fg
+  , bg
+  )
 import Brick.Widgets.Core
-  ( vBox
+  ( padRight
   , str
+  , vBox
   , viewport
+  , withAttr
   , (<=>)
   )
 
@@ -83,7 +91,7 @@ mainUI w = [ui]
     i = E.renderEditor $ w ^. input
 
 renderHistoryElement :: History -> [Widget]
-renderHistoryElement h = [(str $ h ^. cmd), (str $ h ^. output)]
+renderHistoryElement h = [withAttr (attrName "command") (padRight T.Max $ str $ h ^. cmd), withAttr (attrName "output") (str $ h ^. output)]
 
 histScroll :: M.ViewportScroll
 histScroll = M.viewportScroll historyName
@@ -145,12 +153,18 @@ initialState = do
 appCursor :: Weaver -> [T.CursorLocation] -> Maybe T.CursorLocation
 appCursor _ = M.showCursorNamed inputName
 
+weaverAttrMap :: AttrMap
+weaverAttrMap = attrMap ((Vty.Color240 239) `on` (Vty.Color240 216))
+  [ ("command", bg $ Vty.Color240 217)
+  , ("error", fg Vty.red)
+  ]
+
 app :: M.App Weaver WeaverEvent
 app =
     M.App { M.appDraw = mainUI
           , M.appStartEvent = return
           , M.appHandleEvent = weaverEvent
-          , M.appAttrMap = const Data.Default.def
+          , M.appAttrMap = const weaverAttrMap
           , M.appLiftVtyEvent = VtyEvent
           , M.appChooseCursor = appCursor
           }
