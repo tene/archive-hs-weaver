@@ -8,21 +8,16 @@ import Control.Concurrent
   , newChan
   , Chan
   )
-import Control.Exception (finally)
 import Control.Lens
-import Control.Monad (forever)
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.Default (def)
 import Data.Maybe (fromJust)
-import Data.Word (Word8)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.UTF8 as BS8
 import Foreign.Marshal.Array
-  ( mallocArray
+  ( allocaArray
   , peekArray
   )
-import Foreign.Marshal.Alloc (free)
-import Foreign.Ptr (Ptr)
 import GHC.IO.Exception (ExitCode(..))
 import GHC.IO.Handle.Types (Handle(..))
 import qualified Graphics.Vty as Vty
@@ -117,16 +112,15 @@ readBufferSize = 1024
 streamOutput :: Handle -> Chan WeaverEvent -> Int -> IO ()
 streamOutput h c i = do
   hSetBinaryMode h True
-  buffer <- mallocArray readBufferSize :: IO (Ptr Word8)
-  finally
-    (forever $! do
-      count <- hGetBufSome h buffer readBufferSize
-      bytes <- peekArray count buffer
-      let result = BS8.toString $ BS.pack bytes
-      if count > 0
-         then writeChan c (CommandOutput i result)
-         else error "EOF")
-    (free buffer)
+  allocaArray readBufferSize innerloop
+    where
+      innerloop buffer = do
+        count <- hGetBufSome h buffer readBufferSize
+        bytes <- peekArray count buffer
+        let result = BS8.toString $ BS.pack bytes
+        if count > 0
+           then writeChan c (CommandOutput i result) >> innerloop buffer
+           else return ()
 
 forkRunCommand :: Weaver -> T.EventM Weaver
 forkRunCommand w = do
