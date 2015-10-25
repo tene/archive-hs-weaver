@@ -112,7 +112,7 @@ appEvent w (Vty.EvKey Vty.KEsc []) = M.halt w
 appEvent w ev = T.handleEventLensed w input ev >>= M.continue
 
 launchShellProcess :: String -> IO (Maybe Handle, Maybe Handle, Maybe Handle, P.ProcessHandle)
-launchShellProcess shellCommandText =  P.createProcess (P.shell shellCommandText){P.std_out = P.CreatePipe, P.std_in = P.CreatePipe}
+launchShellProcess shellCommandText =  P.createProcess (P.shell shellCommandText){P.std_out = P.CreatePipe, P.std_in = P.CreatePipe, P.std_err = P.CreatePipe}
 
 readBufferSize :: Int
 readBufferSize = 1024
