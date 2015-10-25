@@ -41,6 +41,7 @@ import Brick.Widgets.Core
   , viewport
   , withAttr
   , (<=>)
+  , (<+>)
   )
 
 import qualified System.Process as P
@@ -87,14 +88,14 @@ mainUI w = [ui]
 
 renderHistoryElement :: History -> [Widget]
 renderHistoryElement h =
-  [ withAttr (attrName "command") (padRight T.Max $ str $ sigil ++ " " ++ h ^. cmd)
+  [ withAttr (attrName "command") $ sigil <+> (padRight T.Max $ str $ h ^. cmd)
   , withAttr (attrName "output") (str $ h ^. output)
   ]
     where
       sigil = case (h ^. returnValue) of
-                Just ExitSuccess     -> "✔"
-                Just (ExitFailure _) -> "✘"
-                Nothing              -> "…"
+                Just ExitSuccess     -> withAttr (attrName "success") $ str "✔"
+                Just (ExitFailure _) -> withAttr (attrName "failure") $ str "✘"
+                Nothing              -> str "…"
 
 histScroll :: M.ViewportScroll
 histScroll = M.viewportScroll historyName
@@ -158,7 +159,8 @@ appCursor _ = M.showCursorNamed inputName
 weaverAttrMap :: AttrMap
 weaverAttrMap = attrMap ((Vty.Color240 239) `on` (Vty.Color240 216))
   [ ("command", bg $ Vty.Color240 217)
-  , ("error", fg Vty.red)
+  , ("success", fg Vty.green)
+  , ("failure", fg Vty.red)
   ]
 
 app :: M.App Weaver WeaverEvent
