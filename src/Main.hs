@@ -38,6 +38,7 @@ import Brick.Widgets.Core
   ( padRight
   , str
   , vBox
+  , vLimit
   , viewport
   , withAttr
   , (<=>)
@@ -83,13 +84,16 @@ mainUI :: Weaver -> [Widget]
 mainUI w = [ui]
   where
     ui = _history <=> i
-    _history = viewport historyName T.Vertical $ vBox $ concat $ map renderHistoryElement (w ^. history)
+    _history = viewport historyName T.Vertical $ vBox $ concat $ zipWith renderHistoryElement (w ^. history) [1..]
     i = E.renderEditor $ w ^. input
 
-renderHistoryElement :: History -> [Widget]
-renderHistoryElement h =
+outputViewSize :: Int
+outputViewSize = 5
+
+renderHistoryElement :: History -> Integer -> [Widget]
+renderHistoryElement h i =
   [ withAttr (attrName "command") $ sigil <+> (padRight T.Max $ str $ h ^. cmd)
-  , withAttr (attrName "output") (str $ h ^. output)
+  , withAttr (attrName "output") $ vLimit outputViewSize $ viewport (T.Name $ "output" ++ show i) T.Vertical (str $ h ^. output)
   ]
     where
       sigil = case (h ^. returnValue) of
