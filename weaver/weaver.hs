@@ -1,90 +1,69 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TemplateHaskell   #-}
 module Main where
 
-import Control.Concurrent
-  ( writeChan
-  , forkIO
-  , newChan
-  , Chan
-  )
-import Control.Lens
-import Control.Monad.IO.Class (liftIO)
-import qualified Data.Default (def)
-import Data.Maybe (fromJust)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.UTF8 as BS8
-import Foreign.Marshal.Array
-  ( allocaArray
-  , peekArray
-  )
-import GHC.IO.Exception (ExitCode(..))
-import GHC.IO.Handle.Types (Handle(..))
-import qualified Graphics.Vty as Vty
+import           Control.Concurrent     (Chan, forkIO, newChan, writeChan)
+import           Control.Lens
+import           Control.Monad.IO.Class (liftIO)
+import qualified Data.ByteString        as BS
+import qualified Data.ByteString.UTF8   as BSU8
+import qualified Data.Default           (def)
+import           Data.Maybe             (fromJust)
+import qualified Data.Text              as T
+import qualified Data.Text.Encoding     as TE
+import           Foreign.Marshal.Array  (allocaArray, peekArray)
+import           GHC.IO.Exception       (ExitCode (..))
+import           GHC.IO.Handle.Types    (Handle (..))
+import qualified Graphics.Vty           as Vty
 
-import Brick.AttrMap
-import qualified Brick.Types as T
-import qualified Brick.Main as M
-import qualified Brick.Widgets.Edit as E
-import Brick.Types
-  ( Widget
-  )
-import Brick.Util
-  ( on
-  , fg
-  , bg
-  )
-import Brick.Widgets.Core
-  ( padRight
-  , str
-  , vBox
-  , vLimit
-  , viewport
-  , withAttr
-  , (<=>)
-  , (<+>)
-  )
+import           Brick.AttrMap
+import qualified Brick.Main             as M
+import           Brick.Types            (Name, Padding (..), ViewportType (..),
+                                         Widget)
+import qualified Brick.Types            as Types
+import           Brick.Util             (bg, fg, on)
+import           Brick.Widgets.Core     (padRight, str, vBox, vLimit, viewport,
+                                         withAttr, (<+>), (<=>))
+import qualified Brick.Widgets.Edit     as E
 
-import qualified System.Process as P
-import System.IO
-  ( hSetBinaryMode
-  , hGetBufSome
-  )
+import           System.IO              (hGetBufSome, hSetBinaryMode)
+import qualified System.Process         as P
 
-data WeaverEvent =
+import           Weaver
+
+data UIEvent =
   VtyEvent Vty.Event
-  | CommandOutput Int String
-  | CommandFinished Int ExitCode
+  | WEvent WeaverEvent
   deriving Show
 
 data History =
-  History { _cmd :: String
+  History { _cmd         :: String
           , _returnValue :: Maybe ExitCode
-          , _output :: String
+          , _output      :: BS.ByteString
           }
 
 makeLenses ''History
 
 -- XXX TODO replace the List with a viewport of Historys
 data Weaver =
-  Weaver { _input :: E.Editor
-         , _history :: [History]
-         , _eventChannel :: Chan WeaverEvent
+  Weaver { _input        :: E.Editor
+         , _history      :: [History]
+         , _eventChannel :: Chan UIEvent
          }
 
 makeLenses ''Weaver
 
-historyName :: T.Name
+historyName :: Name
 historyName = "history"
 
-inputName :: T.Name
+inputName :: Name
 inputName = "input"
 
 mainUI :: Weaver -> [Widget]
 mainUI w = [ui]
   where
     ui = _history <=> i
-    _history = viewport historyName T.Vertical $ vBox $ concat $ zipWith renderHistoryElement (w ^. history) [1..]
+    _history = viewport historyName Vertical $ vBox $ concat $ zipWith renderHistoryElement (w ^. history) [1..]
     i = E.renderEditor $ w ^. input
 
 outputViewSize :: Int
@@ -92,8 +71,8 @@ outputViewSize = 5
 
 renderHistoryElement :: History -> Integer -> [Widget]
 renderHistoryElement h i =
-  [ withAttr (attrName "command") $ sigil <+> (padRight T.Max $ str $ h ^. cmd)
-  , withAttr (attrName "output") $ vLimit outputViewSize $ viewport (T.Name $ "output" ++ show i) T.Vertical (str $ h ^. output)
+  [ withAttr (attrName "command") $ sigil <+> (padRight Max $ str $ h ^. cmd)
+  , withAttr (attrName "output") $ vLimit outputViewSize $ viewport (Types.Name $ "output" ++ show i) Vertical (str $ BSU8.toString$ h ^. output)
   ]
     where
       sigil = case (h ^. returnValue) of
@@ -104,17 +83,17 @@ renderHistoryElement h i =
 histScroll :: M.ViewportScroll
 histScroll = M.viewportScroll historyName
 
-weaverEvent :: Weaver -> WeaverEvent -> T.EventM (T.Next Weaver)
+weaverEvent :: Weaver -> UIEvent -> Types.EventM (Types.Next Weaver)
 weaverEvent w (VtyEvent v) = appEvent w v
-weaverEvent w (CommandOutput i t) = M.continue $ w & (history . ix i . output) %~ (++ t)
-weaverEvent w (CommandFinished i rv) = M.continue $ w & (history . ix i . returnValue) .~ Just rv
+weaverEvent w (WEvent (ProcessOutput i t)) = M.continue $ w & (history . ix (getProcessId i) . output) %~ (\ x -> BS.append x t)
+weaverEvent w (WEvent (ProcessTerminated i rv)) = M.continue $ w & (history . ix (getProcessId i) . returnValue) .~ Just rv
 
-appEvent :: Weaver -> Vty.Event -> T.EventM (T.Next Weaver)
+appEvent :: Weaver -> Vty.Event -> Types.EventM (Types.Next Weaver)
 appEvent w (Vty.EvKey Vty.KDown [])  = M.vScrollBy histScroll 1 >> M.continue w
 appEvent w (Vty.EvKey Vty.KUp [])    = M.vScrollBy histScroll (-1) >> M.continue w
 appEvent w (Vty.EvKey Vty.KEnter []) = forkRunCommand w >>= M.continue
 appEvent w (Vty.EvKey Vty.KEsc []) = M.halt w
-appEvent w ev = T.handleEventLensed w input ev >>= M.continue
+appEvent w ev = Types.handleEventLensed w input ev >>= M.continue
 
 launchShellProcess :: String -> IO (Maybe Handle, Maybe Handle, Maybe Handle, P.ProcessHandle)
 launchShellProcess shellCommandText =  P.createProcess (P.shell shellCommandText){P.std_out = P.CreatePipe, P.std_in = P.CreatePipe, P.std_err = P.CreatePipe}
@@ -122,7 +101,7 @@ launchShellProcess shellCommandText =  P.createProcess (P.shell shellCommandText
 readBufferSize :: Int
 readBufferSize = 1024
 
-streamOutput :: Handle -> Chan WeaverEvent -> Int -> IO ()
+streamOutput :: Handle -> Chan UIEvent -> Int -> IO ()
 streamOutput h c i = do
   hSetBinaryMode h True
   allocaArray readBufferSize innerloop
@@ -130,23 +109,24 @@ streamOutput h c i = do
       innerloop buffer = do
         count <- hGetBufSome h buffer readBufferSize
         bytes <- peekArray count buffer
-        let result = BS8.toString $ BS.pack bytes
+        let result = BS.pack bytes
         if count > 0
-           then writeChan c (CommandOutput i result) >> innerloop buffer
+           then writeChan c (WEvent $ ProcessOutput (ProcessId i) result) >> innerloop buffer
            else return ()
 
-forkRunCommand :: Weaver -> T.EventM Weaver
+forkRunCommand :: Weaver -> Types.EventM Weaver
 forkRunCommand w = do
   _ <- liftIO $ forkIO $ do
-    (_, so, _, h) <- launchShellProcess t
+    (_, so, _, h) <- launchShellProcess cmd
     _ <- forkIO $ streamOutput (fromJust so) (w ^. eventChannel) i
     rv <- P.waitForProcess h
-    writeChan (w ^. eventChannel) (CommandFinished i rv)
+    writeChan (w ^. eventChannel) (WEvent $ ProcessTerminated (ProcessId i) rv)
   return emptied
   where
     appended = w & history %~ (++ [ History t Nothing "" ])
     emptied = appended & input .~ emptyInput
     i = length ( w ^. history)
+    cmd = unlines $ E.getEditContents $ w ^. input
     t = unlines $ E.getEditContents $ w ^. input
 
 emptyInput :: E.Editor
@@ -157,7 +137,7 @@ initialState = do
   ec <- Control.Concurrent.newChan
   return $ Weaver emptyInput [] ec
 
-appCursor :: Weaver -> [T.CursorLocation] -> Maybe T.CursorLocation
+appCursor :: Weaver -> [Types.CursorLocation] -> Maybe Types.CursorLocation
 appCursor _ = M.showCursorNamed inputName
 
 weaverAttrMap :: AttrMap
@@ -167,7 +147,7 @@ weaverAttrMap = attrMap ((Vty.Color240 239) `on` (Vty.Color240 216))
   , ("failure", fg Vty.red)
   ]
 
-app :: M.App Weaver WeaverEvent
+app :: M.App Weaver UIEvent
 app =
     M.App { M.appDraw = mainUI
           , M.appStartEvent = return
