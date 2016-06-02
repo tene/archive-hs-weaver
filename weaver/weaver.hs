@@ -18,7 +18,7 @@ import qualified Graphics.Vty           as Vty
 
 import           Brick.AttrMap
 import qualified Brick.Main             as M
-import           Brick.Types            (Name, Padding (..), ViewportType (..),
+import           Brick.Types            (Padding (..), ViewportType (..),
                                          Widget)
 import qualified Brick.Types            as Types
 import           Brick.Util             (bg, fg, on)
@@ -36,6 +36,12 @@ data UIEvent =
   | WEvent WeaverEvent
   deriving Show
 
+data UIName =
+  InputName
+  | HistoryName
+  | OutputName Integer
+  deriving (Eq, Ord, Show)
+
 data History =
   History { _cmd         :: String
           , _returnValue :: Maybe Integer
@@ -46,33 +52,27 @@ makeLenses ''History
 
 -- XXX TODO replace the List with a viewport of Historys
 data Weaver =
-  Weaver { _input        :: E.Editor
+  Weaver { _input        :: E.Editor UIName
          , _history      :: [History]
          , _eventChannel :: Chan UIEvent
          }
 
 makeLenses ''Weaver
 
-historyName :: Name
-historyName = "history"
-
-inputName :: Name
-inputName = "input"
-
-mainUI :: Weaver -> [Widget]
+mainUI :: Weaver -> [Widget UIName]
 mainUI w = [ui]
   where
     ui = _history <=> i
-    _history = viewport historyName Vertical $ vBox $ concat $ zipWith renderHistoryElement (w ^. history) [1..]
-    i = E.renderEditor $ w ^. input
+    _history = viewport HistoryName Vertical $ vBox $ concat $ zipWith renderHistoryElement (w ^. history) [1..]
+    i = E.renderEditor True $ w ^. input
 
 outputViewSize :: Int
 outputViewSize = 5
 
-renderHistoryElement :: History -> Integer -> [Widget]
+renderHistoryElement :: History -> Integer -> [Widget UIName]
 renderHistoryElement h i =
   [ withAttr (attrName "command") $ sigil <+> (padRight Max $ str $ h ^. cmd)
-  , withAttr (attrName "output") $ vLimit outputViewSize $ viewport (Types.Name $ "output" ++ show i) Vertical (str $ BSU8.toString$ h ^. output)
+  , withAttr (attrName "output") $ vLimit outputViewSize $ viewport (OutputName i) Vertical (str $ BSU8.toString$ h ^. output)
   ]
     where
       sigil = case (h ^. returnValue) of
@@ -80,20 +80,20 @@ renderHistoryElement h i =
                 Just _  -> withAttr (attrName "failure") $ str "✘"
                 Nothing -> str "…"
 
-histScroll :: M.ViewportScroll
-histScroll = M.viewportScroll historyName
+histScroll :: M.ViewportScroll UIName
+histScroll = M.viewportScroll HistoryName
 
-weaverEvent :: Weaver -> UIEvent -> Types.EventM (Types.Next Weaver)
+weaverEvent :: Weaver -> UIEvent -> Types.EventM UIName (Types.Next Weaver)
 weaverEvent w (VtyEvent v) = appEvent w v
 weaverEvent w (WEvent (ProcessOutput i t)) = M.continue $ w & (history . ix (getProcessId i) . output) %~ (\ x -> BS.append x t)
 weaverEvent w (WEvent (ProcessTerminated i rv)) = M.continue $ w & (history . ix (getProcessId i) . returnValue) .~ Just rv
 
-appEvent :: Weaver -> Vty.Event -> Types.EventM (Types.Next Weaver)
+appEvent :: Weaver -> Vty.Event -> Types.EventM UIName (Types.Next Weaver)
 appEvent w (Vty.EvKey Vty.KDown [])  = M.vScrollBy histScroll 1 >> M.continue w
 appEvent w (Vty.EvKey Vty.KUp [])    = M.vScrollBy histScroll (-1) >> M.continue w
 appEvent w (Vty.EvKey Vty.KEnter []) = forkRunCommand w >>= M.continue
 appEvent w (Vty.EvKey Vty.KEsc []) = M.halt w
-appEvent w ev = Types.handleEventLensed w input ev >>= M.continue
+appEvent w ev = Types.handleEventLensed w input E.handleEditorEvent ev >>= M.continue
 
 launchShellProcess :: String -> IO (Maybe Handle, Maybe Handle, Maybe Handle, P.ProcessHandle)
 launchShellProcess shellCommandText =  P.createProcess (P.shell shellCommandText){P.std_out = P.CreatePipe, P.std_in = P.CreatePipe, P.std_err = P.CreatePipe}
@@ -118,7 +118,7 @@ unExitCode :: ExitCode -> Integer
 unExitCode ExitSuccess = 0
 unExitCode (ExitFailure n) = toInteger n
 
-forkRunCommand :: Weaver -> Types.EventM Weaver
+forkRunCommand :: Weaver -> Types.EventM UIName Weaver
 forkRunCommand w = do
   _ <- liftIO $ forkIO $ do
     (_, so, _, h) <- launchShellProcess cmd
@@ -133,16 +133,16 @@ forkRunCommand w = do
     cmd = unlines $ E.getEditContents $ w ^. input
     t = unlines $ E.getEditContents $ w ^. input
 
-emptyInput :: E.Editor
-emptyInput = E.editor inputName (str . unlines) (Just 1) ""
+emptyInput :: E.Editor UIName
+emptyInput = E.editor InputName (str . unlines) (Just 1) ""
 
 initialState :: IO Weaver
 initialState = do
   ec <- Control.Concurrent.newChan
   return $ Weaver emptyInput [] ec
 
-appCursor :: Weaver -> [Types.CursorLocation] -> Maybe Types.CursorLocation
-appCursor _ = M.showCursorNamed inputName
+appCursor :: Weaver -> [Types.CursorLocation UIName] -> Maybe (Types.CursorLocation UIName)
+appCursor _ = M.showCursorNamed InputName
 
 weaverAttrMap :: AttrMap
 weaverAttrMap = attrMap ((Vty.Color240 239) `on` (Vty.Color240 216))
@@ -151,7 +151,7 @@ weaverAttrMap = attrMap ((Vty.Color240 239) `on` (Vty.Color240 216))
   , ("failure", fg Vty.red)
   ]
 
-app :: M.App Weaver UIEvent
+app :: M.App Weaver UIEvent UIName
 app =
     M.App { M.appDraw = mainUI
           , M.appStartEvent = return
