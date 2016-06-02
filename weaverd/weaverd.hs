@@ -1,55 +1,30 @@
-import           Control.Concurrent
-import           Control.Exception
-import           Data.Binary
-import           Data.ByteString.Char8 (pack)
-import           Data.ByteString.Lazy  (fromChunks)
-import           Data.Map
-import           Network.Transport
-import           Network.Transport.TCP (createTransport, defaultTCPParameters)
+import qualified Data.Binary                   as Binary
+import qualified Data.ByteString.Lazy          as BSL
+import           Network.Endpoints
+import           Network.Transport.Sockets.TCP
 import           System.Environment
 
 import           Weaver
 
 main = do
-  [host, port] <- getArgs
-  serverDone      <- newEmptyMVar
-  Right transport <- createTransport host port defaultTCPParameters
-  Right endpoint  <- newEndPoint transport
-  forkIO $ echoServer endpoint serverDone
-  putStrLn $ "Echo server started at " ++ show (address endpoint)
-  readMVar serverDone `onCtrlC` closeTransport transport
+  [listenAddr] <- getArgs
+  ep           <- newEndpoint
+  let name = Name listenAddr
+      resolver = tcpSocketResolver4
+  putStrLn $ "Echo server started at " ++ listenAddr
+  withTransport (newTCPTransport4 resolver) $ \transport ->
+    withEndpoint transport ep $
+      withBinding transport ep name $
+        echoServer ep
 
-echoServer :: EndPoint -> MVar () -> IO ()
-echoServer endpoint serverDone = go empty
+echoServer :: Endpoint -> IO ()
+echoServer ep = go
   where
-    go :: Map ConnectionId (MVar Connection) -> IO ()
-    go cs = do
-      event <- receive endpoint
-      case event of
-        ConnectionOpened cid rel addr -> do
-          connMVar <- newEmptyMVar
-          forkIO $ do
-            Right conn <- connect endpoint addr rel defaultConnectHints
-            putMVar connMVar conn
-          go (insert cid connMVar cs)
-        Received cid payload -> do
-          forkIO $ do
-            conn <- readMVar (cs ! cid)
-            send conn [ pack $ show $ ( decode $ fromChunks payload :: Message ) ]
-            return ()
-          go cs
-        ConnectionClosed cid -> do
-          forkIO $ do
-            conn <- readMVar (cs ! cid)
-            close conn
-          go (delete cid cs)
-        EndPointClosed -> do
-          putStrLn "Echo server exiting"
-          putMVar serverDone ()
-
-onCtrlC :: IO a -> IO () -> IO a
-p `onCtrlC` q = catchJust isUserInterrupt p (const $ q >> p `onCtrlC` q)
-  where
-    isUserInterrupt :: AsyncException -> Maybe ()
-    isUserInterrupt UserInterrupt = Just ()
-    isUserInterrupt _             = Nothing
+    go :: IO ()
+    go = do
+      msg <- receiveMessage ep
+      let hello = (Binary.decode (BSL.fromStrict msg) :: Weaver.Message)
+      case hello of
+        Hello name -> sendMessage ep (Name name) $ BSL.toStrict $ Binary.encode $ Goodbye "server"
+        _          -> return ()
+      go

@@ -38,7 +38,7 @@ data UIEvent =
 
 data History =
   History { _cmd         :: String
-          , _returnValue :: Maybe ExitCode
+          , _returnValue :: Maybe Integer
           , _output      :: BS.ByteString
           }
 
@@ -76,9 +76,9 @@ renderHistoryElement h i =
   ]
     where
       sigil = case (h ^. returnValue) of
-                Just ExitSuccess     -> withAttr (attrName "success") $ str "✔"
-                Just (ExitFailure _) -> withAttr (attrName "failure") $ str "✘"
-                Nothing              -> str "…"
+                Just 0  -> withAttr (attrName "success") $ str "✔"
+                Just _  -> withAttr (attrName "failure") $ str "✘"
+                Nothing -> str "…"
 
 histScroll :: M.ViewportScroll
 histScroll = M.viewportScroll historyName
@@ -114,13 +114,17 @@ streamOutput h c i = do
            then writeChan c (WEvent $ ProcessOutput (ProcessId i) result) >> innerloop buffer
            else return ()
 
+unExitCode :: ExitCode -> Integer
+unExitCode ExitSuccess = 0
+unExitCode (ExitFailure n) = toInteger n
+
 forkRunCommand :: Weaver -> Types.EventM Weaver
 forkRunCommand w = do
   _ <- liftIO $ forkIO $ do
     (_, so, _, h) <- launchShellProcess cmd
     _ <- forkIO $ streamOutput (fromJust so) (w ^. eventChannel) i
     rv <- P.waitForProcess h
-    writeChan (w ^. eventChannel) (WEvent $ ProcessTerminated (ProcessId i) rv)
+    writeChan (w ^. eventChannel) (WEvent $ ProcessTerminated (ProcessId i) (unExitCode rv))
   return emptied
   where
     appended = w & history %~ (++ [ History t Nothing "" ])

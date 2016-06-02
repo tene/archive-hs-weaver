@@ -1,4 +1,5 @@
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveGeneric   #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Weaver where
 
 import           Data.Binary
@@ -22,16 +23,21 @@ data Request
   | SendInput ProcessId [Text]
   deriving (Show, Generic)
 
+instance Binary Request
+
 newtype ProcessId = ProcessId { getProcessId :: Int } deriving (Show, Generic)
+instance Binary ProcessId
 
 data WeaverProcess = WeaverProcess {
     processId     :: Int
   , processName   :: Text
   , processOutput :: BS.ByteString
 } deriving (Show, Generic)
+instance Binary WeaverProcess
 
 data WeaverEvent
   = ProcessLaunched WeaverProcess
   | ProcessOutput ProcessId BS.ByteString
-  | ProcessTerminated ProcessId ExitCode
+  | ProcessTerminated ProcessId Integer
   deriving (Show, Generic)
+instance Binary WeaverEvent
