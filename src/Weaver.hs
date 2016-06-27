@@ -8,10 +8,11 @@ import qualified Data.Serialize                as Serialize
 import           Data.Serialize.Text           ()
 import           Data.Text
 import           GHC.Generics                  (Generic)
-import           GHC.IO.Exception              (ExitCode (..))
 import qualified Network.Endpoints             as NE
+import           Network.HostName              (getHostName)
 import qualified Network.RPC                   as RPC
 import           Network.Transport.Sockets.TCP
+import  System.Posix.Process          (getProcessID)
 
 data Message
   = Hello String
@@ -58,10 +59,13 @@ data Context = Context {
 
 withWeaver :: String -> String -> (Context -> IO ()) -> IO ()
 withWeaver targetStr clientStr action = do
+  pid <- getProcessID
+  hostname <- getHostName
+  let clientName = clientStr ++ "." ++ hostname ++ "." ++ (show pid)
   ep <- NE.newEndpoint
   let resolver = tcpSocketResolver4
       target   = NE.Name targetStr
-      client   = NE.Name clientStr
+      client   = NE.Name clientName
       callsite = RPC.newCallSite ep client
   withTransport (newTCPTransport4 resolver) $ \transport ->
     withEndpoint transport ep $
