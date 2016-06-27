@@ -1,6 +1,7 @@
-import qualified Data.Binary                   as Binary
 import qualified Data.ByteString.Lazy          as BSL
-import           Network.Endpoints
+import qualified Data.Serialize                as Serialize
+import           Network.Endpoints as NE
+import           Network.RPC as RPC
 import           Network.Transport.Sockets.TCP
 import           System.Environment
 
@@ -15,16 +16,21 @@ main = do
   withTransport (newTCPTransport4 resolver) $ \transport ->
     withEndpoint transport ep $
       withBinding transport ep name $
-        echoServer ep
+        let cs = RPC.newCallSite ep name
+            ctx = Context transport ep name cs
+        in echoServer ctx
 
-echoServer :: Endpoint -> IO ()
-echoServer ep = go
+hearWeaver ctx method = do
+  (msg, reply) <- RPC.hear (contextEndpoint ctx) (contextName ctx) method
+  return ((Serialize.decode msg), reply)
+
+echoServer :: Context -> IO ()
+echoServer ctx = go
   where
     go :: IO ()
     go = do
-      msg <- receiveMessage ep
-      let hello = (Binary.decode (BSL.fromStrict msg) :: Weaver.Message)
-      case hello of
-        Hello name -> sendMessage ep (Name name) $ BSL.toStrict $ Binary.encode $ Goodbye "server"
+      (msg, reply) <- hearWeaver ctx "echo"
+      case msg of
+        Right (Hello name) -> reply $ Serialize.encode $ Goodbye "server"
         _          -> return ()
       go
