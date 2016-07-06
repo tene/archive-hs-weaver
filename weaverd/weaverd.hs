@@ -1,36 +1,25 @@
-import qualified Data.ByteString.Lazy          as BSL
-import qualified Data.Serialize                as Serialize
-import           Network.Endpoints as NE
-import           Network.RPC as RPC
-import           Network.Transport.Sockets.TCP
+import           Data.Conduit
+import           Data.Conduit.Cereal       (conduitGet2, conduitPut)
+import           Data.Conduit.Network.Unix (AppDataUnix, ServerSettingsUnix,
+                                            appSink, appSource, runUnixServer,
+                                            serverSettings)
+import           Data.Serialize
 import           System.Environment
 
 import           Weaver
 
+main :: IO ()
 main = do
   [listenAddr] <- getArgs
-  ep           <- newEndpoint
-  let name = Name listenAddr
-      resolver = tcpSocketResolver4
-  putStrLn $ "Echo server started at " ++ listenAddr
-  withTransport (newTCPTransport4 resolver) $ \transport ->
-    withEndpoint transport ep $
-      withBinding transport ep name $
-        let cs = RPC.newCallSite ep name
-            ctx = Context transport ep name cs
-        in echoServer ctx
+  runUnixServer (serverSettings listenAddr) echoServer
 
-hearWeaver ctx method = do
-  (msg, reply) <- RPC.hear (contextEndpoint ctx) (contextName ctx) method
-  return ((Serialize.decode msg), reply)
+hello2goodbye = do
+  msg <- await
+  case msg of
+    Just (Hello name) -> do
+      yield $ Goodbye name
+      hello2goodbye
+    _ -> return ()
 
-echoServer :: Context -> IO ()
-echoServer ctx = go
-  where
-    go :: IO ()
-    go = do
-      (msg, reply) <- hearWeaver ctx "echo"
-      case msg of
-        Right (Hello name) -> reply $ Serialize.encode $ Goodbye "server"
-        _          -> return ()
-      go
+echoServer :: AppDataUnix -> IO ()
+echoServer app = (appSource app) =$= (conduitGet2 (get :: Get Weaver.Message)) =$= hello2goodbye =$= (conduitPut (put :: Putter Weaver.Message)) $$ (appSink app)
