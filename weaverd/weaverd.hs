@@ -1,9 +1,10 @@
+import           Control.Monad.Trans.Resource
 import           Data.Conduit
-import           Data.Conduit.Cereal       (conduitGet2, conduitPut)
-import           Data.Conduit.Network.Unix (AppDataUnix, ServerSettingsUnix,
-                                            appSink, appSource, runUnixServer,
-                                            serverSettings)
-import           Data.Serialize
+import           Data.Conduit.Network.Unix    (AppDataUnix, ServerSettingsUnix,
+                                               appSink, appSource,
+                                               runUnixServer, serverSettings)
+import           Data.Store.Streaming         (Message (..), conduitDecode,
+                                               conduitEncode, fromMessage)
 import           System.Environment
 
 import           Weaver
@@ -13,13 +14,11 @@ main = do
   [listenAddr] <- getArgs
   runUnixServer (serverSettings listenAddr) echoServer
 
-hello2goodbye = do
-  msg <- await
-  case msg of
-    Just (Hello name) -> do
-      yield $ Goodbye name
-      hello2goodbye
-    _ -> return ()
+hello2goodbye :: Monad m => Conduit (Message Handshake) m (Message Handshake)
+hello2goodbye = awaitForever respond
+  where
+    respond (Message (Hello name)) = yield $ Message $ Goodbye name
+    respond _ = return ()
 
 echoServer :: AppDataUnix -> IO ()
-echoServer app = (appSource app) =$= (conduitGet2 (get :: Get Weaver.Message)) =$= hello2goodbye =$= (conduitPut (put :: Putter Weaver.Message)) $$ (appSink app)
+echoServer app = runResourceT $ runConduit $ (appSource app) =$= conduitDecode Nothing =$= hello2goodbye =$= conduitEncode =$= (appSink app)

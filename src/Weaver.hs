@@ -3,19 +3,17 @@
 module Weaver where
 
 import qualified Data.ByteString      as BS
-import           Data.Serialize       (Serialize (..))
-import qualified Data.Serialize       as Serialize
-import           Data.Serialize.Text  ()
+import           Data.Store
 import           Data.Text
 import           GHC.Generics         (Generic)
 import           System.Posix.Process (getProcessID)
 
-data Message
+data Handshake
   = Hello String
   | Goodbye String
   deriving (Show, Generic)
 
-instance Serialize Message
+instance Store Handshake
 
 data Request
   = RunShellCommand Text
@@ -24,21 +22,24 @@ data Request
   | SendInput ProcessId [Text]
   deriving (Show, Generic)
 
-instance Serialize Request
+instance Store Request
 
 newtype ProcessId = ProcessId { getProcessId :: Int } deriving (Show, Generic)
-instance Serialize ProcessId
+
+instance Store ProcessId
 
 data WeaverProcess = WeaverProcess {
     processId     :: Int
   , processName   :: Text
   , processOutput :: BS.ByteString
 } deriving (Show, Generic)
-instance Serialize WeaverProcess
+
+instance Store WeaverProcess
 
 data WeaverEvent
   = ProcessLaunched WeaverProcess
   | ProcessOutput ProcessId BS.ByteString
   | ProcessTerminated ProcessId Integer
   deriving (Show, Generic)
-instance Serialize WeaverEvent
+
+instance Store WeaverEvent
