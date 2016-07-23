@@ -21,4 +21,8 @@ hello2goodbye = awaitForever respond
     respond _ = return ()
 
 echoServer :: AppDataUnix -> IO ()
-echoServer app = runResourceT $ runConduit $ (appSource app) =$= conduitDecode Nothing =$= hello2goodbye =$= conduitEncode =$= (appSink app)
+echoServer app = runResourceT $ runConduit $ (appSource app)
+  =$= conduitDecode Nothing
+  =$= hello2goodbye
+  =$= conduitEncode
+  =$= (appSink app)

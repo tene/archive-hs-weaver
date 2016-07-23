@@ -26,5 +26,8 @@ sendHandshake msg = yield (Message msg) =$= conduitEncode
 echoClient :: AppDataUnix -> IO ()
 echoClient app = do
   sendHandshake (Hello "client") $$ (appSink app)
-  (msg :: Maybe Handshake) <- runResourceT $ runConduit $ (appSource app) =$= conduitDecode Nothing =$= DCL.map fromMessage =$= DCL.head
+  (msg :: Maybe Handshake) <- runResourceT $ runConduit $ (appSource app)
+    =$= conduitDecode Nothing
+    =$= DCL.map fromMessage
+    =$= DCL.head
   print msg
