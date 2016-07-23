@@ -2,32 +2,38 @@
 {-# LANGUAGE TemplateHaskell   #-}
 module Main where
 
-import           Control.Concurrent     (Chan, forkIO, newChan, writeChan)
+import           Control.Concurrent           (Chan, forkIO, newChan, writeChan)
 import           Control.Lens
-import           Control.Monad.IO.Class (liftIO)
-import qualified Data.ByteString        as BS
-import qualified Data.ByteString.UTF8   as BSU8
-import qualified Data.Default           (def)
-import           Data.Maybe             (fromJust)
-import qualified Data.Text              as T
-import qualified Data.Text.Encoding     as TE
-import           Foreign.Marshal.Array  (allocaArray, peekArray)
-import           GHC.IO.Exception       (ExitCode (..))
-import           GHC.IO.Handle.Types    (Handle (..))
-import qualified Graphics.Vty           as Vty
+import           Control.Monad.IO.Class       (liftIO)
+import           Control.Monad.Trans
+import           Control.Monad.Trans.Resource
+import qualified Data.ByteString              as BS
+import qualified Data.ByteString.UTF8         as BSU8
+import           Data.Conduit
+import           Data.Conduit.Network.Unix    (AppDataUnix, appSink, appSource,
+                                               clientSettings, runUnixClient)
+import qualified Data.Default                 (def)
+import           Data.Maybe                   (fromJust)
+import           Data.Store.Streaming
+import qualified Data.Text                    as T
+import qualified Data.Text.Encoding           as TE
+import           Foreign.Marshal.Array        (allocaArray, peekArray)
+import           GHC.IO.Exception             (ExitCode (..))
+import           GHC.IO.Handle.Types          (Handle (..))
+import           System.Environment
+import           System.IO                    (hGetBufSome, hSetBinaryMode)
+import qualified System.Process               as P
 
 import           Brick.AttrMap
-import qualified Brick.Main             as M
-import           Brick.Types            (Padding (..), ViewportType (..),
-                                         Widget)
-import qualified Brick.Types            as Types
-import           Brick.Util             (bg, fg, on)
-import           Brick.Widgets.Core     (padRight, str, vBox, vLimit, viewport,
-                                         withAttr, (<+>), (<=>))
-import qualified Brick.Widgets.Edit     as E
-
-import           System.IO              (hGetBufSome, hSetBinaryMode)
-import qualified System.Process         as P
+import qualified Brick.Main                   as M
+import           Brick.Types                  (Padding (..), ViewportType (..),
+                                               Widget)
+import qualified Brick.Types                  as Types
+import           Brick.Util                   (bg, fg, on)
+import           Brick.Widgets.Core           (padRight, str, vBox, vLimit,
+                                               viewport, withAttr, (<+>), (<=>))
+import qualified Brick.Widgets.Edit           as E
+import qualified Graphics.Vty                 as Vty
 
 import           Weaver
 
@@ -161,8 +167,20 @@ app =
           , M.appChooseCursor = appCursor
           }
 
+debug_dump :: MonadIO m => Sink (Message Handshake) m ()
+debug_dump = awaitForever $ liftIO . print
+
+serverThread :: AppDataUnix -> IO ()
+serverThread app = do
+  yield (Message (Hello "client")) =$= conduitEncode $$ (appSink app)
+  runResourceT $ runConduit $ (appSource app)
+    =$= conduitDecode Nothing
+    =$= debug_dump
+
 main :: IO ()
 main = do
+  [listenAddr] <- getArgs
+  runUnixClient (clientSettings listenAddr) serverThread
   is <- initialState
   _ <- M.customMain (Vty.mkVty Data.Default.def) (is ^. eventChannel) app is
   return ()

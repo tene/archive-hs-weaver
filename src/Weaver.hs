@@ -6,7 +6,13 @@ import qualified Data.ByteString      as BS
 import           Data.Store
 import           Data.Text
 import           GHC.Generics         (Generic)
+import           System.Directory     (getHomeDirectory)
+import           System.FilePath      ((</>))
 import           System.Posix.Process (getProcessID)
+
+getWeaverSocketPaths = do
+  home <- getHomeDirectory
+  return [home </> ".weaver" </> "weaver.socket"]
 
 data Handshake
   = Hello String
