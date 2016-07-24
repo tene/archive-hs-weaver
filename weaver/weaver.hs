@@ -167,15 +167,10 @@ app =
           , M.appChooseCursor = appCursor
           }
 
-debug_dump :: MonadIO m => Sink (Message Handshake) m ()
-debug_dump = awaitForever $ liftIO . print
-
-serverThread :: AppDataUnix -> IO ()
-serverThread app = do
-  yield (Message (Hello "client")) =$= conduitEncode $$ (appSink app)
-  runResourceT $ runConduit $ (appSource app)
-    =$= conduitDecode Nothing
-    =$= debug_dump
+serverThread :: WeaverEventSource -> WeaverRequestSink -> IO ()
+serverThread events requests = do
+  yield (Hello "client") $$ requests
+  runResourceT $ events $$ debug_dump
 
 main :: IO ()
 main = do

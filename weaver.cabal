@@ -21,6 +21,8 @@ library
                      , directory
                      , conduit
                      , conduit-extra
+                     , mtl
+                     , resourcet
                      , hostname
                      , unix
                      , bytestring

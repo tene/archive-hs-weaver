@@ -18,14 +18,8 @@ import           Weaver
 main :: IO ()
 main = weaverConnect echoClient
 
-sendHandshake :: Monad m => Handshake -> Producer m ByteString
-sendHandshake msg = yield (Message msg) =$= conduitEncode
-
-echoClient :: AppDataUnix -> IO ()
-echoClient app = do
-  sendHandshake (Hello "client") $$ (appSink app)
-  (msg :: Maybe Handshake) <- runResourceT $ runConduit $ (appSource app)
-    =$= conduitDecode Nothing
-    =$= DCL.map fromMessage
-    =$= DCL.head
+echoClient :: WeaverEventSource -> WeaverRequestSink -> IO ()
+echoClient events requests = do
+  yield (Hello "client") $$ requests
+  (msg :: Maybe WeaverEvent) <- runResourceT $ events $$ DCL.head
   print msg

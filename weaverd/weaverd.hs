@@ -14,7 +14,7 @@ main = do
   [listenAddr] <- getWeaverSocketPaths
   runUnixServer (serverSettings listenAddr) echoServer
 
-hello2goodbye :: Monad m => Conduit (Message Handshake) m (Message Handshake)
+hello2goodbye :: Monad m => Conduit (Message WeaverRequest) m (Message WeaverEvent)
 hello2goodbye = awaitForever respond
   where
     respond (Message (Hello name)) = yield $ Message $ Goodbye name
