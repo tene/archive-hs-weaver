@@ -2,13 +2,21 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Weaver where
 
-import qualified Data.ByteString      as BS
+import qualified Data.ByteString           as BS
+import           Data.Conduit.Network.Unix (AppDataUnix, appSink, appSource,
+                                            clientSettings, runUnixClient)
 import           Data.Store
 import           Data.Text
-import           GHC.Generics         (Generic)
-import           System.Directory     (getHomeDirectory)
-import           System.FilePath      ((</>))
-import           System.Posix.Process (getProcessID)
+import           GHC.Generics              (Generic)
+import           System.Directory          (getHomeDirectory)
+import           System.FilePath           ((</>))
+import           System.Posix.Process      (getProcessID)
+
+weaverConnect thread = do
+  paths <- getWeaverSocketPaths
+  case paths of
+    path:_ -> runUnixClient (clientSettings path) thread
+    _      -> error "Failure locating weaver daemon path"
 
 getWeaverSocketPaths = do
   home <- getHomeDirectory

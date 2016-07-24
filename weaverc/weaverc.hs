@@ -16,9 +16,7 @@ import           Weaver
 
 
 main :: IO ()
-main = do
-  [listenAddr] <- getArgs
-  runUnixClient (clientSettings listenAddr) echoClient
+main = weaverConnect echoClient
 
 sendHandshake :: Monad m => Handshake -> Producer m ByteString
 sendHandshake msg = yield (Message msg) =$= conduitEncode

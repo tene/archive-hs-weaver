@@ -179,8 +179,7 @@ serverThread app = do
 
 main :: IO ()
 main = do
-  [listenAddr] <- getArgs
-  runUnixClient (clientSettings listenAddr) serverThread
+  _ <- forkIO $ weaverConnect serverThread
   is <- initialState
   _ <- M.customMain (Vty.mkVty Data.Default.def) (is ^. eventChannel) app is
   return ()

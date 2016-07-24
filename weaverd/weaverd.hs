@@ -11,7 +11,7 @@ import           Weaver
 
 main :: IO ()
 main = do
-  [listenAddr] <- getArgs
+  [listenAddr] <- getWeaverSocketPaths
   runUnixServer (serverSettings listenAddr) echoServer
 
 hello2goodbye :: Monad m => Conduit (Message Handshake) m (Message Handshake)

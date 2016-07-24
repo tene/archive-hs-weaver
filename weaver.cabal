@@ -19,6 +19,8 @@ library
                      , store
                      , filepath
                      , directory
+                     , conduit
+                     , conduit-extra
                      , hostname
                      , unix
                      , bytestring
