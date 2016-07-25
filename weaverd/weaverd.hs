@@ -5,13 +5,16 @@ import           Data.Conduit.Network.Unix    (AppDataUnix, ServerSettingsUnix,
                                                runUnixServer, serverSettings)
 import           Data.Store.Streaming         (Message (..), conduitDecode,
                                                conduitEncode, fromMessage)
+import           Safe
 import           System.Environment
 
 import           Weaver
 
 main :: IO ()
 main = do
-  [listenAddr] <- getWeaverSocketPaths
+  args <- getArgs
+  let name = defaultSocketName $ headMay args
+  listenAddr <- getWeaverSocketPath name
   runUnixServer (serverSettings listenAddr) echoServer
 
 hello2goodbye :: Monad m => Conduit (Message WeaverRequest) m (Message WeaverEvent)

@@ -101,9 +101,6 @@ appEvent w (Vty.EvKey Vty.KEnter []) = forkRunCommand w >>= M.continue
 appEvent w (Vty.EvKey Vty.KEsc []) = M.halt w
 appEvent w ev = Types.handleEventLensed w input E.handleEditorEvent ev >>= M.continue
 
-launchShellProcess :: String -> IO (Maybe Handle, Maybe Handle, Maybe Handle, P.ProcessHandle)
-launchShellProcess shellCommandText =  P.createProcess (P.shell shellCommandText){P.std_out = P.CreatePipe, P.std_in = P.CreatePipe, P.std_err = P.CreatePipe}
-
 readBufferSize :: Int
 readBufferSize = 1024
 
@@ -174,7 +171,7 @@ serverThread events requests = do
 
 main :: IO ()
 main = do
-  _ <- forkIO $ weaverConnect serverThread
+  _ <- forkIO $ weaverConnect Nothing serverThread
   is <- initialState
   _ <- M.customMain (Vty.mkVty Data.Default.def) (is ^. eventChannel) app is
   return ()

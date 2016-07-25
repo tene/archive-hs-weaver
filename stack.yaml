@@ -12,6 +12,7 @@ extra-deps:
 - brick-0.8
 - store-0.2.0.0
 - store-core-0.2.0.0
+- safe-exceptions-0.1.4.0
 - th-utilities-0.1.1.0
 - vty-5.7.1
 

@@ -16,7 +16,7 @@ import           Weaver
 
 
 main :: IO ()
-main = weaverConnect echoClient
+main = weaverConnect Nothing echoClient
 
 echoClient :: WeaverEventSource -> WeaverRequestSink -> IO ()
 echoClient events requests = do

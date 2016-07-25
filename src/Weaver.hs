@@ -3,6 +3,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Weaver where
 
+import           Control.Concurrent           (threadDelay)
+import           Control.Exception.Safe
 import           Control.Monad.Trans
 import           Control.Monad.Trans.Resource
 import qualified Data.ByteString              as BS
@@ -16,23 +18,52 @@ import           Data.Text
 import           GHC.Generics                 (Generic)
 import           System.Directory             (getHomeDirectory)
 import           System.FilePath              ((</>))
+import           System.IO
 import           System.Posix.Process         (getProcessID)
+import qualified System.Process               as P
+
+launchShellProcess :: String -> IO (Maybe Handle, Maybe Handle, Maybe Handle, P.ProcessHandle)
+launchShellProcess shellCommandText =  P.createProcess (P.shell shellCommandText){P.std_out = P.CreatePipe, P.std_in = P.CreatePipe, P.std_err = P.CreatePipe}
 
 type WeaverEventSource = Source (ResourceT IO) WeaverEvent
 type WeaverRequestSink = Sink WeaverRequest IO ()
 type WeaverClient = WeaverEventSource -> WeaverRequestSink -> IO ()
 
-weaverConnect :: WeaverClient -> IO ()
-weaverConnect thread = do
-  paths <- getWeaverSocketPaths
-  case paths of
-    path:_ -> runUnixClient (clientSettings path) _clientContext
-    _      -> error "Failure locating weaver daemon path"
+-- TODO this logic for detecting if we need to launch a process is 
+-- definitely wrong; we should just check if we can connect to the socket
+weaverConnect :: Maybe String -> WeaverClient -> IO ()
+weaverConnect name thread = do
+  path <- getWeaverSocketPath name'
+  catchAny
+    (runUnixClient (clientSettings path) _clientContext)
+    spawn_first
   where
     _clientContext app =
       let request_sink = DCL.map Message =$= conduitEncode =$= appSink app
           event_source = appSource app =$= conduitDecode Nothing =$= DCL.map fromMessage
       in thread event_source request_sink
+    spawn_first ex = do
+      putStrLn "weaverd appears to not be already running; launching it"
+      startWeaverServer name'
+      weaverConnect name thread
+    name' = defaultSocketName name
+
+defaultSocketName = maybe "weaver" id
+
+-- TODO this logic for detecting if launching the process is successful is
+-- definitely wrong; we should just check if we can connect to the socket
+startWeaverServer name = do
+  ph <- P.spawnProcess "weaverd" [name]
+  threadDelay 500000
+  ec <- P.getProcessExitCode ph
+  case ec of
+    Nothing -> return ph
+    _ -> error "Failure launching weaverd!"
+
+getWeaverSocketPath name = do
+  home <- getHomeDirectory
+  return $ home </> ".weaver" </> name ++ ".socket"
+
 
 getWeaverSocketPaths = do
   home <- getHomeDirectory
