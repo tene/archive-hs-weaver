@@ -29,7 +29,7 @@ type WeaverEventSource = Source (ResourceT IO) WeaverEvent
 type WeaverRequestSink = Sink WeaverRequest IO ()
 type WeaverClient = WeaverEventSource -> WeaverRequestSink -> IO ()
 
--- TODO this logic for detecting if we need to launch a process is 
+-- TODO this logic for detecting if we need to launch a process is
 -- definitely wrong; we should just check if we can connect to the socket
 weaverConnect :: Maybe String -> WeaverClient -> IO ()
 weaverConnect name thread = do

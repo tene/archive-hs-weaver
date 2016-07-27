@@ -15,17 +15,20 @@ main = do
   args <- getArgs
   let name = defaultSocketName $ headMay args
   listenAddr <- getWeaverSocketPath name
-  runUnixServer (serverSettings listenAddr) echoServer
+  -- TODO check for socket liveness before binding
+  runUnixServer (serverSettings listenAddr) (wrapWeaverServer hello2goodbye)
 
-hello2goodbye :: Monad m => Conduit (Message WeaverRequest) m (Message WeaverEvent)
+type WeaverServer = Conduit (Message WeaverRequest) (ResourceT IO) (Message WeaverEvent)
+
+hello2goodbye :: WeaverServer
 hello2goodbye = awaitForever respond
   where
     respond (Message (Hello name)) = yield $ Message $ Goodbye name
     respond _ = return ()
 
-echoServer :: AppDataUnix -> IO ()
-echoServer app = runResourceT $ runConduit $ (appSource app)
+wrapWeaverServer :: WeaverServer -> AppDataUnix -> IO ()
+wrapWeaverServer server app = runResourceT $ runConduit $ (appSource app)
   =$= conduitDecode Nothing
-  =$= hello2goodbye
+  =$= server
   =$= conduitEncode
   =$= (appSink app)
