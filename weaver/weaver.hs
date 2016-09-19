@@ -54,11 +54,12 @@ makeLenses ''History
 
 -- XXX TODO replace the List with a viewport of Historys
 data Weaver =
-  Weaver { _input        :: E.Editor String UIName
-         , _history      :: [History]
-         , _eventChannel :: Chan UIEvent
-         , _debugVisible :: Bool
-         , _debugLog     :: [String]
+  Weaver { _input         :: E.Editor String UIName
+         , _history       :: [History]
+         , _eventChannel  :: Chan UIEvent
+         , _serverChannel :: Chan WeaverRequest
+         , _debugVisible  :: Bool
+         , _debugLog      :: [String]
          }
 
 makeLenses ''Weaver
@@ -155,7 +156,8 @@ emptyInput = E.editor InputName (str . unlines) (Just 1) ""
 initialState :: IO Weaver
 initialState = do
   ec <- Control.Concurrent.newChan
-  return $ Weaver emptyInput [] ec False ["Weaver Started!"]
+  sc <- Control.Concurrent.newChan
+  return $ Weaver emptyInput [] ec sc False ["Weaver Started!"]
 
 appCursor :: Weaver -> [Types.CursorLocation UIName] -> Maybe (Types.CursorLocation UIName)
 appCursor _ = M.showCursorNamed InputName
@@ -187,17 +189,17 @@ app =
           , M.appChooseCursor = appCursor
           }
 
-serverThread :: Chan UIEvent -> WeaverEventSource -> WeaverRequestSink -> IO ()
-serverThread chan events requests = do
+serverThread :: Chan UIEvent -> Chan WeaverRequest-> WeaverEventSource -> WeaverRequestSink -> IO ()
+serverThread event_ch _request_ch events requests = do
   yield (Hello "client") $$ requests
   runResourceT $ events $$ awaitForever $ \event -> do
-    liftIO . (writeChan chan) . UIDebug . show $ event
-    liftIO . (writeChan chan) $ WEvent event
+    liftIO . (writeChan event_ch) . UIDebug . show $ event
+    liftIO . (writeChan event_ch) $ WEvent event
 
 main :: IO ()
 main = do
   is <- initialState
-  _ <- forkIO $ weaverConnect Nothing (serverThread $ is ^. eventChannel)
+  _ <- forkIO $ weaverConnect Nothing (serverThread (is ^. eventChannel) (is ^. serverChannel))
   _ <- M.customMain (Vty.mkVty Data.Default.def) (is ^. eventChannel) app is
   return ()
 -- main = do
