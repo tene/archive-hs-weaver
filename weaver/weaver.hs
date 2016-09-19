@@ -58,7 +58,7 @@ makeLenses ''History
 
 -- XXX TODO replace the List with a viewport of Historys
 data Weaver =
-  Weaver { _input        :: E.Editor UIName
+  Weaver { _input        :: E.Editor String UIName
          , _history      :: [History]
          , _eventChannel :: Chan UIEvent
          }
@@ -136,7 +136,7 @@ forkRunCommand w = do
     cmd = unlines $ E.getEditContents $ w ^. input
     t = unlines $ E.getEditContents $ w ^. input
 
-emptyInput :: E.Editor UIName
+emptyInput :: E.Editor String UIName
 emptyInput = E.editor InputName (str . unlines) (Just 1) ""
 
 initialState :: IO Weaver
