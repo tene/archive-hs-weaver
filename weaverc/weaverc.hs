@@ -2,15 +2,8 @@
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 import           Control.Monad.Trans.Resource
-import           Data.ByteString
 import           Data.Conduit
 import qualified Data.Conduit.List            as DCL
-import           Data.Conduit.Network.Unix    (AppDataUnix, appSink, appSource,
-                                               clientSettings, runUnixClient)
-import           Data.Store.Streaming         (Message (..), conduitDecode,
-                                               conduitEncode, fromMessage)
-import           System.Environment
-import           System.IO                    (stdout)
 
 import           Weaver
 

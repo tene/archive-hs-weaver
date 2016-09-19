@@ -5,22 +5,15 @@ module Main where
 import           Control.Concurrent           (Chan, forkIO, newChan, writeChan)
 import           Control.Lens
 import           Control.Monad.IO.Class       (liftIO)
-import           Control.Monad.Trans
 import           Control.Monad.Trans.Resource
 import qualified Data.ByteString              as BS
 import qualified Data.ByteString.UTF8         as BSU8
 import           Data.Conduit
-import           Data.Conduit.Network.Unix    (AppDataUnix, appSink, appSource,
-                                               clientSettings, runUnixClient)
 import qualified Data.Default                 (def)
 import           Data.Maybe                   (fromJust)
-import           Data.Store.Streaming
-import qualified Data.Text                    as T
-import qualified Data.Text.Encoding           as TE
 import           Foreign.Marshal.Array        (allocaArray, peekArray)
 import           GHC.IO.Exception             (ExitCode (..))
 import           GHC.IO.Handle.Types          (Handle (..))
-import           System.Environment
 import           System.IO                    (hGetBufSome, hSetBinaryMode)
 import qualified System.Process               as P
 
@@ -30,9 +23,8 @@ import           Brick.Types                  (Padding (..), ViewportType (..),
                                                Widget)
 import qualified Brick.Types                  as Types
 import           Brick.Util                   (bg, fg, on)
-import qualified Brick.Widgets.Border         as Border
-import           Brick.Widgets.Border         (hBorder, hBorderWithLabel)
-import           Brick.Widgets.Core           (padRight, str, txt, vBox, vLimit,
+import           Brick.Widgets.Border         (hBorderWithLabel)
+import           Brick.Widgets.Core           (padRight, str, vBox, vLimit,
                                                viewport, withAttr, (<+>), (<=>))
 import qualified Brick.Widgets.Edit           as E
 import qualified Graphics.Vty                 as Vty
@@ -100,6 +92,7 @@ renderHistoryElement h i =
 histScroll :: M.ViewportScroll UIName
 histScroll = M.viewportScroll HistoryName
 
+addDebugLog :: String -> Weaver -> Weaver
 addDebugLog s = debugLog %~ (++ [s])
 
 weaverEvent :: Weaver -> UIEvent -> Types.EventM UIName (Types.Next Weaver)
@@ -108,6 +101,7 @@ weaverEvent w (WEvent (ProcessOutput i t)) = M.continue $ w & (history . ix (get
 weaverEvent w (WEvent (ProcessTerminated i rv)) = M.continue $ w & (history . ix (getProcessId i) . returnValue) .~ Just rv & addDebugLog ("Process " ++ (show $ getProcessId i) ++ " Terminated with " ++ (show rv))
 weaverEvent w (WEvent (Goodbye s)) = M.continue $ w & addDebugLog ("Received Goodbye (" ++ s ++ ") from server")
 weaverEvent w (UIDebug s) = M.continue $ w & addDebugLog s
+weaverEvent _ _ = error "Received an unexpected event"
 
 
 
@@ -143,7 +137,7 @@ unExitCode (ExitFailure n) = toInteger n
 forkRunCommand :: Weaver -> Types.EventM UIName Weaver
 forkRunCommand w = do
   _ <- liftIO $ forkIO $ do
-    (_, so, _, h) <- launchShellProcess cmd
+    (_, so, _, h) <- launchShellProcess cmdline
     _ <- forkIO $ streamOutput (fromJust so) (w ^. eventChannel) i
     rv <- P.waitForProcess h
     writeChan (w ^. eventChannel) (WEvent $ ProcessTerminated (ProcessId i) (unExitCode rv))
@@ -152,7 +146,7 @@ forkRunCommand w = do
     appended = w & history %~ (++ [ History t Nothing "" ])
     emptied = appended & input .~ emptyInput
     i = length ( w ^. history)
-    cmd = unlines $ E.getEditContents $ w ^. input
+    cmdline = unlines $ E.getEditContents $ w ^. input
     t = unlines $ E.getEditContents $ w ^. input
 
 emptyInput :: E.Editor String UIName
@@ -166,15 +160,21 @@ initialState = do
 appCursor :: Weaver -> [Types.CursorLocation UIName] -> Maybe (Types.CursorLocation UIName)
 appCursor _ = M.showCursorNamed InputName
 
+rgb :: Integer -> Integer -> Integer -> Vty.Color
+rgb = Vty.rgbColor
+
+gray :: Integer -> Vty.Color
+gray x = rgb x x x
+
 weaverAttrMap :: AttrMap
-weaverAttrMap = attrMap ((Vty.rgbColor 238 238 238) `on` (Vty.rgbColor 8 8 8))
-  [ ("command", bg $ Vty.rgbColor 18 18 18)
-  , (E.editAttr, bg $ Vty.rgbColor 18 18 18)
-  , (E.editFocusedAttr, bg $ Vty.rgbColor 18 18 18)
+weaverAttrMap = attrMap (gray 238 `on` gray 8)
+  [ ("command", bg $ gray 18)
+  , (E.editAttr, bg $ gray 18)
+  , (E.editFocusedAttr, bg $ gray 18)
   , ("success", fg Vty.green)
   , ("failure", fg Vty.red)
-  , ("debugItem",   Vty.rgbColor 255 135 135 `on` Vty.rgbColor 18 18 18)
-  , ("debugPanel",   Vty.rgbColor 255 135 135 `on` Vty.rgbColor 18 18 18)
+  , ("debugItem",   rgb 255 135 135 `on` gray 18)
+  , ("debugPanel",   rgb 255 135 135 `on` gray 18)
   ]
 
 app :: M.App Weaver UIEvent UIName

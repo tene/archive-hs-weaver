@@ -1,10 +1,9 @@
 import           Control.Monad.Trans.Resource
 import           Data.Conduit
-import           Data.Conduit.Network.Unix    (AppDataUnix, ServerSettingsUnix,
-                                               appSink, appSource,
+import           Data.Conduit.Network.Unix    (AppDataUnix, appSink, appSource,
                                                runUnixServer, serverSettings)
 import           Data.Store.Streaming         (Message (..), conduitDecode,
-                                               conduitEncode, fromMessage)
+                                               conduitEncode)
 import           Safe
 import           System.Environment
 
