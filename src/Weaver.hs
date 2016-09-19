@@ -99,6 +99,7 @@ data WeaverEvent
   | ProcessLaunched WeaverProcess
   | ProcessOutput ProcessId BS.ByteString
   | ProcessTerminated ProcessId Integer
+  | WDebug String --- TODO add debug levels
   deriving (Show, Generic)
 
 instance Store WeaverEvent

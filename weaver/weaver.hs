@@ -30,7 +30,9 @@ import           Brick.Types                  (Padding (..), ViewportType (..),
                                                Widget)
 import qualified Brick.Types                  as Types
 import           Brick.Util                   (bg, fg, on)
-import           Brick.Widgets.Core           (padRight, str, vBox, vLimit,
+import qualified Brick.Widgets.Border         as Border
+import           Brick.Widgets.Border         (hBorder, hBorderWithLabel)
+import           Brick.Widgets.Core           (padRight, str, txt, vBox, vLimit,
                                                viewport, withAttr, (<+>), (<=>))
 import qualified Brick.Widgets.Edit           as E
 import qualified Graphics.Vty                 as Vty
@@ -40,12 +42,14 @@ import           Weaver
 data UIEvent =
   VtyEvent Vty.Event
   | WEvent WeaverEvent
+  | UIDebug String
   deriving Show
 
 data UIName =
   InputName
   | HistoryName
   | OutputName Integer
+  | DebugName
   deriving (Eq, Ord, Show)
 
 data History =
@@ -61,16 +65,23 @@ data Weaver =
   Weaver { _input        :: E.Editor String UIName
          , _history      :: [History]
          , _eventChannel :: Chan UIEvent
+         , _debugVisible :: Bool
+         , _debugLog     :: [String]
          }
 
 makeLenses ''Weaver
 
+-- XXX TODO Come up with a more-general way to represent UI state
 mainUI :: Weaver -> [Widget UIName]
-mainUI w = [ui]
+mainUI w = case (w ^. debugVisible) of
+    False -> [ui]
+    True  -> [dbgui]
   where
     ui = _history <=> i
+    dbgui = _dbglog <=> hBorderWithLabel (str "debug") <=> _history <=> i
     _history = viewport HistoryName Vertical $ vBox $ concat $ zipWith renderHistoryElement (w ^. history) [1..]
     i = E.renderEditor True $ w ^. input
+    _dbglog = withAttr (attrName "debugPanel") $ viewport DebugName Vertical $ vBox $ map (withAttr (attrName "debugItem") . str) $ w ^. debugLog
 
 outputViewSize :: Int
 outputViewSize = 5
@@ -89,15 +100,23 @@ renderHistoryElement h i =
 histScroll :: M.ViewportScroll UIName
 histScroll = M.viewportScroll HistoryName
 
+addDebugLog s = debugLog %~ (++ [s])
+
 weaverEvent :: Weaver -> UIEvent -> Types.EventM UIName (Types.Next Weaver)
 weaverEvent w (VtyEvent v) = appEvent w v
 weaverEvent w (WEvent (ProcessOutput i t)) = M.continue $ w & (history . ix (getProcessId i) . output) %~ (\ x -> BS.append x t)
-weaverEvent w (WEvent (ProcessTerminated i rv)) = M.continue $ w & (history . ix (getProcessId i) . returnValue) .~ Just rv
+weaverEvent w (WEvent (ProcessTerminated i rv)) = M.continue $ w & (history . ix (getProcessId i) . returnValue) .~ Just rv & addDebugLog ("Process " ++ (show $ getProcessId i) ++ " Terminated with " ++ (show rv))
+weaverEvent w (WEvent (Goodbye s)) = M.continue $ w & addDebugLog ("Received Goodbye (" ++ s ++ ") from server")
+weaverEvent w (UIDebug s) = M.continue $ w & addDebugLog s
 
+
+
+-- XXX TODO Read keybindings from a config file?
 appEvent :: Weaver -> Vty.Event -> Types.EventM UIName (Types.Next Weaver)
 appEvent w (Vty.EvKey Vty.KDown [])  = M.vScrollBy histScroll 1 >> M.continue w
 appEvent w (Vty.EvKey Vty.KUp [])    = M.vScrollBy histScroll (-1) >> M.continue w
 appEvent w (Vty.EvKey Vty.KEnter []) = forkRunCommand w >>= M.continue
+appEvent w (Vty.EvKey (Vty.KChar 'd') [Vty.MMeta]) = M.continue (w & debugVisible %~ not)
 appEvent w (Vty.EvKey Vty.KEsc []) = M.halt w
 appEvent w ev = Types.handleEventLensed w input E.handleEditorEvent ev >>= M.continue
 
@@ -142,16 +161,20 @@ emptyInput = E.editor InputName (str . unlines) (Just 1) ""
 initialState :: IO Weaver
 initialState = do
   ec <- Control.Concurrent.newChan
-  return $ Weaver emptyInput [] ec
+  return $ Weaver emptyInput [] ec False ["Weaver Started!"]
 
 appCursor :: Weaver -> [Types.CursorLocation UIName] -> Maybe (Types.CursorLocation UIName)
 appCursor _ = M.showCursorNamed InputName
 
 weaverAttrMap :: AttrMap
-weaverAttrMap = attrMap ((Vty.Color240 239) `on` (Vty.Color240 216))
-  [ ("command", bg $ Vty.Color240 217)
+weaverAttrMap = attrMap ((Vty.rgbColor 238 238 238) `on` (Vty.rgbColor 8 8 8))
+  [ ("command", bg $ Vty.rgbColor 18 18 18)
+  , (E.editAttr, bg $ Vty.rgbColor 18 18 18)
+  , (E.editFocusedAttr, bg $ Vty.rgbColor 18 18 18)
   , ("success", fg Vty.green)
   , ("failure", fg Vty.red)
+  , ("debugItem",   Vty.rgbColor 255 135 135 `on` Vty.rgbColor 18 18 18)
+  , ("debugPanel",   Vty.rgbColor 255 135 135 `on` Vty.rgbColor 18 18 18)
   ]
 
 app :: M.App Weaver UIEvent UIName
@@ -164,15 +187,17 @@ app =
           , M.appChooseCursor = appCursor
           }
 
-serverThread :: WeaverEventSource -> WeaverRequestSink -> IO ()
-serverThread events requests = do
+serverThread :: Chan UIEvent -> WeaverEventSource -> WeaverRequestSink -> IO ()
+serverThread chan events requests = do
   yield (Hello "client") $$ requests
-  runResourceT $ events $$ debug_dump
+  runResourceT $ events $$ awaitForever $ \event -> do
+    liftIO . (writeChan chan) . UIDebug . show $ event
+    liftIO . (writeChan chan) $ WEvent event
 
 main :: IO ()
 main = do
-  _ <- forkIO $ weaverConnect Nothing serverThread
   is <- initialState
+  _ <- forkIO $ weaverConnect Nothing (serverThread $ is ^. eventChannel)
   _ <- M.customMain (Vty.mkVty Data.Default.def) (is ^. eventChannel) app is
   return ()
 -- main = do
