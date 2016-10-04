@@ -21,6 +21,7 @@ library
                      , directory
                      , conduit
                      , conduit-extra
+                     , conduit-combinators
                      , mtl
                      , safe-exceptions
                      , process
@@ -43,6 +44,7 @@ executable weaver
                      , lens
                      , conduit
                      , conduit-extra
+                     , conduit-combinators
                      , stm-conduit
                      , stm-chans
                      , resourcet

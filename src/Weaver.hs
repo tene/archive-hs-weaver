@@ -3,13 +3,13 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Weaver where
 
-import           Control.Concurrent           (threadDelay)
+import           Control.Concurrent           (threadDelay, writeChan)
 import           Control.Exception.Safe
 import           Control.Monad.Trans
 import           Control.Monad.Trans.Resource
 import qualified Data.ByteString              as BS
 import           Data.Conduit
-import           Data.Conduit.List            as DCL
+import qualified Data.Conduit.Combinators     as DCC
 import           Data.Conduit.Network.Unix    (AppDataUnix, appSink, appSource,
                                                clientSettings, runUnixClient)
 import           Data.Store
@@ -39,8 +39,8 @@ weaverConnect name thread = do
     spawn_first
   where
     _clientContext app =
-      let request_sink = DCL.map Message =$= conduitEncode =$= appSink app
-          event_source = appSource app =$= conduitDecode Nothing =$= DCL.map fromMessage
+      let request_sink = DCC.map Message .| conduitEncode .| appSink app
+          event_source = appSource app .| conduitDecode Nothing .| DCC.map fromMessage
       in thread event_source request_sink
     spawn_first ex = do
       putStrLn "weaverd appears to not be already running; launching it"
@@ -49,6 +49,8 @@ weaverConnect name thread = do
     name' = defaultSocketName name
 
 defaultSocketName = maybe "weaver" id
+
+sinkChan x = DCC.mapM_ (liftIO . writeChan x)
 
 -- TODO this logic for detecting if launching the process is successful is
 -- definitely wrong; we should just check if we can connect to the socket
