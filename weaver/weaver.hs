@@ -2,32 +2,31 @@
 {-# LANGUAGE TemplateHaskell   #-}
 module Main where
 
-import           Control.Concurrent           (Chan, forkIO, newChan, writeChan)
+import           Control.Concurrent     (Chan, forkIO, newChan, writeChan)
 import           Control.Lens
-import           Control.Monad.IO.Class       (liftIO)
-import           Control.Monad.Trans.Resource
-import qualified Data.ByteString              as BS
-import qualified Data.ByteString.UTF8         as BSU8
+import           Control.Monad.IO.Class (liftIO)
+import qualified Data.ByteString        as BS
+import qualified Data.ByteString.UTF8   as BSU8
 import           Data.Conduit
-import qualified Data.Default                 (def)
-import           Data.Maybe                   (fromJust)
-import           Foreign.Marshal.Array        (allocaArray, peekArray)
-import           GHC.IO.Exception             (ExitCode (..))
-import           GHC.IO.Handle.Types          (Handle (..))
-import           System.IO                    (hGetBufSome, hSetBinaryMode)
-import qualified System.Process               as P
+import qualified Data.Default           (def)
+import           Data.Maybe             (fromJust)
+import           Foreign.Marshal.Array  (allocaArray, peekArray)
+import           GHC.IO.Exception       (ExitCode (..))
+import           GHC.IO.Handle.Types    (Handle (..))
+import           System.IO              (hGetBufSome, hSetBinaryMode)
+import qualified System.Process         as P
 
 import           Brick.AttrMap
-import qualified Brick.Main                   as M
-import           Brick.Types                  (Padding (..), ViewportType (..),
-                                               Widget)
-import qualified Brick.Types                  as Types
-import           Brick.Util                   (bg, fg, on)
-import           Brick.Widgets.Border         (hBorderWithLabel)
-import           Brick.Widgets.Core           (padRight, str, vBox, vLimit,
-                                               viewport, withAttr, (<+>), (<=>))
-import qualified Brick.Widgets.Edit           as E
-import qualified Graphics.Vty                 as Vty
+import qualified Brick.Main             as M
+import           Brick.Types            (Padding (..), ViewportType (..),
+                                         Widget)
+import qualified Brick.Types            as Types
+import           Brick.Util             (bg, fg, on)
+import           Brick.Widgets.Border   (hBorderWithLabel)
+import           Brick.Widgets.Core     (padRight, str, vBox, vLimit, viewport,
+                                         withAttr, (<+>), (<=>))
+import qualified Brick.Widgets.Edit     as E
+import qualified Graphics.Vty           as Vty
 
 import           Weaver
 
@@ -192,9 +191,10 @@ app =
 serverThread :: Chan UIEvent -> Chan WeaverRequest-> WeaverEventSource -> WeaverRequestSink -> IO ()
 serverThread event_ch _request_ch events requests = do
   yield (Hello "client") $$ requests
-  runResourceT $ events $$ awaitForever $ \event -> do
+  runConduitRes $ events .| (awaitForever $ \event -> do
     liftIO . (writeChan event_ch) . UIDebug . show $ event
     liftIO . (writeChan event_ch) $ WEvent event
+    )
 
 main :: IO ()
 main = do

@@ -26,8 +26,8 @@ hello2goodbye = awaitForever respond
     respond _ = return ()
 
 wrapWeaverServer :: WeaverServer -> AppDataUnix -> IO ()
-wrapWeaverServer server app = runResourceT $ runConduit $ (appSource app)
-  =$= conduitDecode Nothing
-  =$= server
-  =$= conduitEncode
-  =$= (appSink app)
+wrapWeaverServer server app = runConduitRes $ (appSource app)
+  .| conduitDecode Nothing
+  .| server
+  .| conduitEncode
+  .| (appSink app)
