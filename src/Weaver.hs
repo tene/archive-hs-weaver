@@ -3,7 +3,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Weaver where
 
-import           Control.Concurrent           (threadDelay, writeChan)
+import           Control.Concurrent           (readChan, threadDelay, writeChan)
 import           Control.Exception.Safe
 import           Control.Monad.Trans
 import           Control.Monad.Trans.Resource
@@ -50,6 +50,7 @@ weaverConnect name thread = do
 
 defaultSocketName = maybe "weaver" id
 
+sourceChan x = DCC.repeatM $ readChan x
 sinkChan x = DCC.mapM_ (liftIO . writeChan x)
 
 -- TODO this logic for detecting if launching the process is successful is
@@ -76,7 +77,7 @@ debug_dump = awaitForever $ liftIO . print
 
 data WeaverRequest
   = Hello String
-  | RunShellCommand Text
+  | RunShellCommand String
   | RunCommand [Text]
   | KillProcess ProcessId
   | SendInput ProcessId [Text]
@@ -89,8 +90,8 @@ newtype ProcessId = ProcessId { getProcessId :: Int } deriving (Show, Generic)
 instance Store ProcessId
 
 data WeaverProcess = WeaverProcess {
-    processId     :: Int
-  , processName   :: Text
+    processId     :: ProcessId
+  , processName   :: String
   , processOutput :: BS.ByteString
 } deriving (Show, Generic)
 

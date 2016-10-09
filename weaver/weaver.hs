@@ -3,7 +3,9 @@
 module Main where
 
 import           Control.Concurrent       (Chan, forkIO, newChan, writeChan)
+import           Control.Concurrent.Async (concurrently)
 import           Control.Lens
+import           Control.Monad            (void)
 import           Control.Monad.IO.Class   (liftIO)
 import qualified Data.ByteString          as BS
 import qualified Data.ByteString.UTF8     as BSU8
@@ -34,7 +36,6 @@ import           Weaver
 data UIEvent =
   VtyEvent Vty.Event
   | WEvent WeaverEvent
-  | UIDebug String
   deriving Show
 
 data UIName =
@@ -96,12 +97,16 @@ histScroll = M.viewportScroll HistoryName
 addDebugLog :: String -> Weaver -> Weaver
 addDebugLog s = debugLog %~ (++ [s])
 
+traceWeaverEvent w (WEvent e) = weaverEvent (w & addDebugLog (show e)) (WEvent e)
+traceWeaverEvent w e = weaverEvent w e
+
 weaverEvent :: Weaver -> UIEvent -> Types.EventM UIName (Types.Next Weaver)
 weaverEvent w (VtyEvent v) = appEvent w v
+weaverEvent w (WEvent (ProcessLaunched (WeaverProcess _pid pname pout))) = M.continue $ w & history %~ (++ [ History pname Nothing pout ])
 weaverEvent w (WEvent (ProcessOutput i t)) = M.continue $ w & (history . ix (getProcessId i) . output) %~ (\ x -> BS.append x t)
 weaverEvent w (WEvent (ProcessTerminated i rv)) = M.continue $ w & (history . ix (getProcessId i) . returnValue) .~ Just rv & addDebugLog ("Process " ++ (show $ getProcessId i) ++ " Terminated with " ++ (show rv))
 weaverEvent w (WEvent (Goodbye s)) = M.continue $ w & addDebugLog ("Received Goodbye (" ++ s ++ ") from server")
-weaverEvent w (UIDebug s) = M.continue $ w & addDebugLog s
+weaverEvent w (WEvent (WDebug s)) = M.continue $ w & addDebugLog s
 weaverEvent _ _ = error "Received an unexpected event"
 
 
@@ -110,7 +115,7 @@ weaverEvent _ _ = error "Received an unexpected event"
 appEvent :: Weaver -> Vty.Event -> Types.EventM UIName (Types.Next Weaver)
 appEvent w (Vty.EvKey Vty.KDown [])  = M.vScrollBy histScroll 1 >> M.continue w
 appEvent w (Vty.EvKey Vty.KUp [])    = M.vScrollBy histScroll (-1) >> M.continue w
-appEvent w (Vty.EvKey Vty.KEnter []) = forkRunCommand w >>= M.continue
+appEvent w (Vty.EvKey Vty.KEnter []) = requestRunCommand w >>= M.continue
 appEvent w (Vty.EvKey (Vty.KChar 'd') [Vty.MMeta]) = M.continue (w & debugVisible %~ not)
 appEvent w (Vty.EvKey Vty.KEsc []) = M.halt w
 appEvent w ev = Types.handleEventLensed w input E.handleEditorEvent ev >>= M.continue
@@ -134,6 +139,14 @@ streamOutput h c i = do
 unExitCode :: ExitCode -> Integer
 unExitCode ExitSuccess = 0
 unExitCode (ExitFailure n) = toInteger n
+
+requestRunCommand :: Weaver -> Types.EventM UIName Weaver
+requestRunCommand w = do
+  _ <- liftIO $ writeChan ch $ RunShellCommand cmdline
+  return $ w & input .~ emptyInput
+  where
+    cmdline = unlines $ E.getEditContents $ w ^. input
+    ch = w ^. serverChannel
 
 forkRunCommand :: Weaver -> Types.EventM UIName Weaver
 forkRunCommand w = do
@@ -183,7 +196,7 @@ app :: M.App Weaver UIEvent UIName
 app =
     M.App { M.appDraw = mainUI
           , M.appStartEvent = return
-          , M.appHandleEvent = weaverEvent
+          , M.appHandleEvent = traceWeaverEvent
           , M.appAttrMap = const weaverAttrMap
           , M.appLiftVtyEvent = VtyEvent
           , M.appChooseCursor = appCursor
@@ -191,10 +204,14 @@ app =
 
 serverThread :: Chan UIEvent -> Chan WeaverRequest-> WeaverEventSource -> WeaverRequestSink -> IO ()
 serverThread event_ch _request_ch events requests = do
-  yield (Hello "client") $$ requests
-  runConduitRes $ events
-    .| (DCC.map WEvent)
-    .| (sinkChan event_ch)
+  writeChan _request_ch (Hello "client")
+  void $ concurrently _fromserver _toserver
+  where
+    _fromserver = runConduitRes $ events
+      .| (DCC.map WEvent)
+      .| (sinkChan event_ch)
+    _toserver = runConduit $ (sourceChan _request_ch)
+      .| requests
 
 main :: IO ()
 main = do
