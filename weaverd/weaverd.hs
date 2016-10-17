@@ -29,6 +29,7 @@ ughPidCount :: IORef Int
 {-# NOINLINE ughPidCount #-}
 ughPidCount = unsafePerformIO (newIORef 0)
 
+fakeRunShellCommand :: String -> WeaverServer
 fakeRunShellCommand cmd = do
   pid <- liftIO $ atomicModifyIORef ughPidCount (\x -> (x+1,ProcessId x))
   yield $ Message $ ProcessLaunched $ WeaverProcess pid cmd ""

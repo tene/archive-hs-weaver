@@ -97,6 +97,7 @@ histScroll = M.viewportScroll HistoryName
 addDebugLog :: String -> Weaver -> Weaver
 addDebugLog s = debugLog %~ (++ [s])
 
+traceWeaverEvent :: Weaver -> UIEvent -> Types.EventM UIName (Types.Next Weaver)
 traceWeaverEvent w (WEvent e) = weaverEvent (w & addDebugLog (show e)) (WEvent e)
 traceWeaverEvent w e = weaverEvent w e
 
@@ -107,7 +108,7 @@ weaverEvent w (WEvent (ProcessOutput i t)) = M.continue $ w & (history . ix (get
 weaverEvent w (WEvent (ProcessTerminated i rv)) = M.continue $ w & (history . ix (getProcessId i) . returnValue) .~ Just rv & addDebugLog ("Process " ++ (show $ getProcessId i) ++ " Terminated with " ++ (show rv))
 weaverEvent w (WEvent (Goodbye s)) = M.continue $ w & addDebugLog ("Received Goodbye (" ++ s ++ ") from server")
 weaverEvent w (WEvent (WDebug s)) = M.continue $ w & addDebugLog s
-weaverEvent _ _ = error "Received an unexpected event"
+-- weaverEvent _ _ = error "Received an unexpected event"
 
 
 

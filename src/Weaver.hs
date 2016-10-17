@@ -3,14 +3,15 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Weaver where
 
-import           Control.Concurrent           (readChan, threadDelay, writeChan)
+import           Control.Concurrent           (Chan, readChan, threadDelay,
+                                               writeChan)
 import           Control.Exception.Safe
 import           Control.Monad.Trans
 import           Control.Monad.Trans.Resource
 import qualified Data.ByteString              as BS
 import           Data.Conduit
 import qualified Data.Conduit.Combinators     as DCC
-import           Data.Conduit.Network.Unix    (AppDataUnix, appSink, appSource,
+import           Data.Conduit.Network.Unix    (appSink, appSource,
                                                clientSettings, runUnixClient)
 import           Data.Store
 import           Data.Store.Streaming
@@ -42,19 +43,22 @@ weaverConnect name thread = do
       let request_sink = DCC.map Message .| conduitEncode .| appSink app
           event_source = appSource app .| conduitDecode Nothing .| DCC.map fromMessage
       in thread event_source request_sink
-    spawn_first ex = do
+    spawn_first _ = do
       putStrLn "weaverd appears to not be already running; launching it"
-      startWeaverServer name'
+      _ <- startWeaverServer name'
       weaverConnect name thread
     name' = defaultSocketName name
 
+defaultSocketName :: Maybe String -> String
 defaultSocketName = maybe "weaver" id
 
+sourceChan :: Chan a -> Source IO a
 sourceChan x = DCC.repeatM $ readChan x
 sinkChan x = DCC.mapM_ (liftIO . writeChan x)
 
 -- TODO this logic for detecting if launching the process is successful is
 -- definitely wrong; we should just check if we can connect to the socket
+startWeaverServer :: String -> IO P.ProcessHandle
 startWeaverServer name = do
   ph <- P.spawnProcess "weaverd" [name]
   threadDelay 500000
@@ -63,11 +67,12 @@ startWeaverServer name = do
     Nothing -> return ph
     _ -> error "Failure launching weaverd!"
 
+getWeaverSocketPath :: String -> IO FilePath
 getWeaverSocketPath name = do
   home <- getHomeDirectory
   return $ home </> ".weaver" </> name ++ ".socket"
 
-
+getWeaverSocketPaths :: IO [FilePath]
 getWeaverSocketPaths = do
   home <- getHomeDirectory
   return [home </> ".weaver" </> "weaver.socket"]
@@ -85,9 +90,24 @@ data WeaverRequest
 
 instance Store WeaverRequest
 
-newtype ProcessId = ProcessId { getProcessId :: Int } deriving (Show, Generic)
+newtype ProcessId = ProcessId { getProcessId :: Int } deriving (Show, Generic, Eq)
 
 instance Store ProcessId
+
+data NodeId = NodeId {
+    nodeHostName  :: String
+  , nodeProcessId :: Int
+} deriving (Show, Generic, Eq)
+
+instance Store NodeId
+
+data ExecutionId = ExecutionId {
+    executionNode      :: NodeId
+  , executionSerial    :: Int
+  , executionProcessId :: Int
+} deriving (Show, Generic, Eq)
+
+instance Store ExecutionId
 
 data WeaverProcess = WeaverProcess {
     processId     :: ProcessId
